@@ -1,0 +1,43 @@
+name: LingoTrail reminders
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '2-59/5 * * * *'
+    - cron: '23 6 1 * *'
+
+permissions: {}
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    concurrency: lingotrail-reminder-tick
+    steps:
+      - name: Send due reminders
+        env:
+          TICK_SECRET: ${{ secrets.REMINDER_CRON_SECRET }}
+          SITE_ORIGIN: ${{ vars.LINGOTRAIL_ORIGIN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail-with-body --connect-timeout 8 --max-time 25 \
+            --retry 2 --retry-delay 3 --request POST \
+            --header "Authorization: Bearer ${TICK_SECRET}" \
+            "${SITE_ORIGIN}/api/reminders/run"
+  maintain-schedule:
+    if: github.event.schedule == '23 6 1 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: write
+    steps:
+      - name: Keep the public timer repository active
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="repos/${GITHUB_REPOSITORY}/contents/.timer-active"
+          previous="$(gh api "${endpoint}" --jq .sha 2>/dev/null || true)"
+          args=(--method PUT "${endpoint}" -f message="Record monthly timer activity" -f content="$(date -u +%F | base64 -w0)")
+          if [[ -n "${previous}" ]]; then args+=(-f sha="${previous}"); fi
+          gh api "${args[@]}" --silent
