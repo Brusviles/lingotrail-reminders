@@ -9,7 +9,7 @@ permissions: {}
 jobs:
   notify:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 4
     concurrency: lingotrail-reminder-tick
     steps:
       - name: Send due reminders
@@ -19,10 +19,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --silent --show-error --fail-with-body --connect-timeout 8 --max-time 25 \
-            --retry 2 --retry-delay 3 --request POST \
-            --header "Authorization: Bearer ${TICK_SECRET}" \
-            "${SITE_ORIGIN}/api/reminders/run"
+          for batch in {1..12}; do
+            result="$(curl --silent --show-error --fail-with-body --connect-timeout 8 --max-time 25 \
+              --retry 2 --retry-delay 3 --request POST \
+              --header "Authorization: Bearer ${TICK_SECRET}" \
+              "${SITE_ORIGIN}/api/reminders/run")"
+            jq -e 'select(.configured == true) | {configured,sent,hasMore}' <<<"${result}"
+            [[ "$(jq -r '.hasMore // false' <<<"${result}")" == true ]] || break
+          done
   maintain-schedule:
     if: github.event.schedule == '23 6 1 * *'
     runs-on: ubuntu-latest
